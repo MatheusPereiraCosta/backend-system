@@ -1,0 +1,97 @@
+name: Backend CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/agendapro-backend
+
+jobs:
+  # ============================================================================
+  # JOB 1: Testes Automatizados e Build do JAR Spring Boot 3
+  # ============================================================================
+  test-and-build:
+    name: 🧪 Test & Build Spring Boot (Java 21)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout do código fonte
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Configurar JDK 21 (Amazon Corretto)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'corretto'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: 🧪 Executar Testes Automatizados e Empacotar (Maven)
+        run: mvn clean verify -B
+
+      - name: 💾 Upload do JAR executável
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar
+          path: target/*.jar
+          retention-days: 7
+
+      - name: 📊 Upload dos Relatórios de Testes (Surefire)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-test-reports
+          path: target/surefire-reports
+          retention-days: 7
+
+  # ============================================================================
+  # JOB 2: Build da Imagem Docker e Publicação no GHCR
+  # ============================================================================
+  docker-build-and-push:
+    name: 🐳 Docker Build & Push (GHCR)
+    runs-on: ubuntu-latest
+    needs: [test-and-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: 📥 Checkout do código fonte
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Configurar Docker Buildx
+        uses: actions/setup-buildx-action@v3
+
+      - name: 🔑 Autenticação no GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Extrair metadados e tags para Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short,prefix=sha-
+            type=ref,event=branch
+
+      - name: 🚀 Build e Push da Imagem Docker com Cache GHA
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,0 +1,10 @@
+app:
+  jwt:
+    # Segredo exclusivo de desenvolvimento local. Nunca use em produção (lá vem de JWT_SECRET).
+    secret: ${JWT_SECRET:dev-only-secret-agendapro-0123456789-abcdef}
+
+spring:
+  flyway:
+    # Perfil dev: além do schema, carrega dados de exemplo (estabelecimento fictício).
+    # Em produção (perfil prod) apenas db/migration é aplicado, e o banco começa vazio.
+    locations: classpath:db/migration,classpath:db/seed/dev

@@ -33,6 +33,24 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(DuplicateResourceException.class)
+    public ProblemDetail handleDuplicate(DuplicateResourceException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Registro Duplicado");
+        problem.setType(URI.create("https://agendapro.com/errors/duplicate-resource"));
+        problem.setProperty("timestamp", Instant.now());
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ProblemDetail handleInvalidCredentials(InvalidCredentialsException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, ex.getMessage());
+        problem.setTitle("Credenciais Inválidas");
+        problem.setType(URI.create("https://agendapro.com/errors/invalid-credentials"));
+        problem.setProperty("timestamp", Instant.now());
+        return problem;
+    }
+
     @ExceptionHandler(BusinessRuleException.class)
     public ProblemDetail handleBusinessRule(BusinessRuleException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());

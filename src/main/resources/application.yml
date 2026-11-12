@@ -1,6 +1,19 @@
+app:
+  # Fuso do negócio: define o que é "hoje" e "agora" para agenda e dashboard (o container roda em UTC)
+  timezone: America/Sao_Paulo
+  jwt:
+    # Obrigatório em produção (mínimo 32 caracteres). Gere com: openssl rand -base64 48
+    secret: ${JWT_SECRET:}
+    expiration-hours: 12
+
 spring:
   application:
     name: agendapro-api
+
+  data:
+    web:
+      pageable:
+        max-page-size: 50
 
   profiles:
     active: dev
@@ -47,7 +60,7 @@ management:
         include: health,info,metrics
   endpoint:
     health:
-      show-details: always
+      show-details: when-authorized
 
 logging:
   level:

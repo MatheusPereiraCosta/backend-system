@@ -18,6 +18,8 @@
 *.keystore
 *credentials*
 *private_key*
+# Classe de exceção Java (não é arquivo de credenciais)
+!**/InvalidCredentialsException.java
 
 # =============================================================================
 # COMPILADOS & BUILD DO MAVEN / JAVA

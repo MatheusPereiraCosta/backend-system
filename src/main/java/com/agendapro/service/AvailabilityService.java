@@ -3,6 +3,7 @@ package com.agendapro.service;
 import com.agendapro.domain.Appointment;
 import com.agendapro.domain.ProfessionalWorkingHour;
 import com.agendapro.domain.ServiceItem;
+import com.agendapro.domain.enums.AppointmentStatus;
 import com.agendapro.dto.AvailabilitySlotDTO;
 import com.agendapro.repository.AppointmentRepository;
 import com.agendapro.repository.ProfessionalWorkingHourRepository;
@@ -10,7 +11,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,6 +27,8 @@ public class AvailabilityService {
     private final ProfessionalWorkingHourRepository workingHourRepository;
     private final AppointmentRepository appointmentRepository;
     private final ServiceItemService serviceItemService;
+    private final ProfessionalService professionalService;
+    private final Clock clock;
 
     @Transactional(readOnly = true)
     public AvailabilitySlotDTO calculateAvailableSlots(
@@ -32,8 +37,25 @@ public class AvailabilityService {
             UUID serviceId,
             LocalDate date) {
 
-        ServiceItem service = serviceItemService.getEntityById(serviceId);
+        // Ambos precisam pertencer ao estabelecimento da URL (isolamento entre estabelecimentos)
+        professionalService.getEntityById(establishmentId, professionalId);
+        ServiceItem service = serviceItemService.getEntityById(establishmentId, serviceId);
+        return computeSlots(establishmentId, professionalId, service, date);
+    }
+
+    /** Calcula os horários livres sem revalidar o escopo; o chamador já garantiu que os IDs são do estabelecimento. */
+    public AvailabilitySlotDTO computeSlots(
+            UUID establishmentId,
+            UUID professionalId,
+            ServiceItem service,
+            LocalDate date) {
+
         int durationMinutes = service.getDurationMinutes();
+        LocalDateTime now = LocalDateTime.now(clock);
+
+        if (date.isBefore(now.toLocalDate())) {
+            return AvailabilitySlotDTO.builder().date(date).availableTimes(List.of()).build();
+        }
 
         // 0 = Domingo, 1 = Segunda, ..., 6 = Sábado
         short dayOfWeek = (short) date.getDayOfWeek().getValue();
@@ -84,7 +106,7 @@ public class AvailabilityService {
             boolean hasCollision = false;
             if (!inBreak) {
                 for (Appointment apt : existingAppointments) {
-                    if (apt.getStatus().name().equals("CANCELLED")) continue;
+                    if (apt.getStatus() == AppointmentStatus.CANCELLED) continue;
 
                     boolean overlaps = (slotStart.isBefore(apt.getEndTime()) && slotEnd.isAfter(apt.getStartTime()));
                     if (overlaps) {
@@ -94,7 +116,10 @@ public class AvailabilityService {
                 }
             }
 
-            if (!inBreak && !hasCollision) {
+            // Hoje, não oferece horários que já passaram
+            boolean inPast = date.equals(now.toLocalDate()) && !slotStart.isAfter(now.toLocalTime());
+
+            if (!inBreak && !hasCollision && !inPast) {
                 availableSlots.add(slotStart);
             }
 

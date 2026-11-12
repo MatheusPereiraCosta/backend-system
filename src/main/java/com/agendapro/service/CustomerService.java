@@ -5,15 +5,19 @@ import com.agendapro.domain.Establishment;
 import com.agendapro.domain.enums.CustomerStatus;
 import com.agendapro.dto.CustomerDTO;
 import com.agendapro.exception.ResourceNotFoundException;
+import com.agendapro.repository.AppointmentRepository;
 import com.agendapro.repository.CustomerRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -22,35 +26,52 @@ import java.util.stream.Collectors;
 public class CustomerService {
 
     private final CustomerRepository customerRepository;
+    private final AppointmentRepository appointmentRepository;
     private final EstablishmentService establishmentService;
 
     @Transactional(readOnly = true)
     public Page<CustomerDTO> findAll(UUID establishmentId, String search, CustomerStatus status, Pageable pageable) {
+        Page<Customer> page;
         if (search != null && !search.isBlank()) {
-            return customerRepository.searchCustomers(establishmentId, search.trim(), pageable)
-                    .map(CustomerDTO::fromEntity);
+            page = customerRepository.searchCustomers(establishmentId, search.trim(), pageable);
+        } else if (status != null) {
+            page = customerRepository.findByEstablishmentIdAndStatus(establishmentId, status, pageable);
+        } else {
+            page = customerRepository.findByEstablishmentId(establishmentId, pageable);
         }
-        if (status != null) {
-            return customerRepository.findByEstablishmentIdAndStatus(establishmentId, status, pageable)
-                    .map(CustomerDTO::fromEntity);
-        }
-        return customerRepository.findByEstablishmentId(establishmentId, pageable)
-                .map(CustomerDTO::fromEntity);
+        List<CustomerDTO> dtos = withTotals(establishmentId, page.getContent());
+        return new PageImpl<>(dtos, pageable, page.getTotalElements());
     }
 
     @Transactional(readOnly = true)
     public List<CustomerDTO> findInactive(UUID establishmentId, int daysThreshold) {
         OffsetDateTime thresholdDate = OffsetDateTime.now().minusDays(daysThreshold);
-        return customerRepository.findInactiveCustomers(establishmentId, thresholdDate)
-                .stream().map(CustomerDTO::fromEntity).collect(Collectors.toList());
+        return withTotals(establishmentId, customerRepository.findInactiveCustomers(establishmentId, thresholdDate));
     }
 
     @Transactional(readOnly = true)
     public CustomerDTO findById(UUID establishmentId, UUID id) {
-        return customerRepository.findById(id)
+        Customer customer = customerRepository.findById(id)
                 .filter(c -> c.getEstablishment().getId().equals(establishmentId))
-                .map(CustomerDTO::fromEntity)
                 .orElseThrow(() -> new ResourceNotFoundException("Cliente não encontrado com ID: " + id));
+        return withTotals(establishmentId, List.of(customer)).get(0);
+    }
+
+    /** Converte para DTO preenchendo, em uma única consulta, o total de agendamentos e o total gasto. */
+    private List<CustomerDTO> withTotals(UUID establishmentId, List<Customer> customers) {
+        if (customers.isEmpty()) return List.of();
+        Map<UUID, Object[]> totals = appointmentRepository
+                .findCustomerTotals(establishmentId, customers.stream().map(Customer::getId).toList())
+                .stream().collect(Collectors.toMap(row -> (UUID) row[0], row -> row));
+        return customers.stream().map(c -> {
+            CustomerDTO dto = CustomerDTO.fromEntity(c);
+            Object[] row = totals.get(c.getId());
+            if (row != null) {
+                dto.setTotalAppointments((Long) row[1]);
+                dto.setTotalSpent((BigDecimal) row[2]);
+            }
+            return dto;
+        }).toList();
     }
 
     @Transactional

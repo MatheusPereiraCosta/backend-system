@@ -1,6 +1,7 @@
 package com.agendapro.dto;
 
 import com.agendapro.domain.ProfessionalWorkingHour;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -25,12 +26,17 @@ public class WorkingHourDTO {
     private Boolean enabled = true;
 
     @NotNull(message = "O horário de início é obrigatório")
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "HH:mm")
     private LocalTime startTime;
 
     @NotNull(message = "O horário de término é obrigatório")
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "HH:mm")
     private LocalTime endTime;
 
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "HH:mm")
     private LocalTime breakStart;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "HH:mm")
     private LocalTime breakEnd;
 
     public static WorkingHourDTO fromEntity(ProfessionalWorkingHour entity) {

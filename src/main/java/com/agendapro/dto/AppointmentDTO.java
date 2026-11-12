@@ -2,6 +2,7 @@ package com.agendapro.dto;
 
 import com.agendapro.domain.Appointment;
 import com.agendapro.domain.enums.AppointmentStatus;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.*;
 
 import java.math.BigDecimal;
@@ -27,7 +28,9 @@ public class AppointmentDTO {
     private UUID serviceId;
     private String serviceName;
     private LocalDate appointmentDate;
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "HH:mm")
     private LocalTime startTime;
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "HH:mm")
     private LocalTime endTime;
     private BigDecimal price;
     private Integer durationMinutes;

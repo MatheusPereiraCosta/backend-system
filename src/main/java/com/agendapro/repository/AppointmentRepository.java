@@ -2,6 +2,7 @@ package com.agendapro.repository;
 
 import com.agendapro.domain.Appointment;
 import com.agendapro.domain.enums.AppointmentStatus;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -69,5 +70,28 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
     long countByEstablishmentIdAndAppointmentDateBetweenAndStatusNot(
             UUID establishmentId, LocalDate startDate, LocalDate endDate, AppointmentStatus status);
 
+    long countByEstablishmentIdAndAppointmentDateBetweenAndStatus(
+            UUID establishmentId, LocalDate startDate, LocalDate endDate, AppointmentStatus status);
+
     long countByEstablishmentIdAndStatus(UUID establishmentId, AppointmentStatus status);
+
+    /** Cada linha: [customerId, qtd. de agendamentos não cancelados, total gasto em concluídos]. */
+    @Query("SELECT a.customer.id, COUNT(a), " +
+           "COALESCE(SUM(CASE WHEN a.status = 'COMPLETED' THEN a.price ELSE 0 END), 0) " +
+           "FROM Appointment a " +
+           "WHERE a.establishment.id = :establishmentId AND a.customer.id IN :customerIds " +
+           "AND a.status <> 'CANCELLED' GROUP BY a.customer.id")
+    List<Object[]> findCustomerTotals(@Param("establishmentId") UUID establishmentId,
+                                      @Param("customerIds") java.util.Collection<UUID> customerIds);
+
+    /** Cada linha: [nome do serviço, quantidade, faturamento]. Ignora cancelados. */
+    @Query("SELECT a.service.name, COUNT(a), COALESCE(SUM(a.price), 0) FROM Appointment a " +
+           "WHERE a.establishment.id = :establishmentId " +
+           "AND a.appointmentDate BETWEEN :startDate AND :endDate " +
+           "AND a.status <> 'CANCELLED' " +
+           "GROUP BY a.service.name ORDER BY COUNT(a) DESC")
+    List<Object[]> findTopServices(@Param("establishmentId") UUID establishmentId,
+                                   @Param("startDate") LocalDate startDate,
+                                   @Param("endDate") LocalDate endDate,
+                                   Pageable pageable);
 }

@@ -13,7 +13,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/establishments/{establishmentId}/availability")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class AvailabilityController {
 
     private final AvailabilityService availabilityService;

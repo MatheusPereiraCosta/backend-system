@@ -1,19 +1,19 @@
 package com.agendapro.service;
 
-import com.agendapro.domain.ServiceItem;
 import com.agendapro.domain.enums.AppointmentStatus;
 import com.agendapro.dto.AppointmentDTO;
 import com.agendapro.dto.DashboardStatsDTO;
 import com.agendapro.repository.AppointmentRepository;
 import com.agendapro.repository.CustomerRepository;
-import com.agendapro.repository.ServiceItemRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
-import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -24,11 +24,11 @@ public class DashboardService {
 
     private final AppointmentRepository appointmentRepository;
     private final CustomerRepository customerRepository;
-    private final ServiceItemRepository serviceItemRepository;
+    private final Clock clock;
 
     @Transactional(readOnly = true)
     public DashboardStatsDTO getDashboardStats(UUID establishmentId) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
         LocalDate startOfMonth = today.withDayOfMonth(1);
         LocalDate endOfMonth = today.withDayOfMonth(today.lengthOfMonth());
 
@@ -45,7 +45,25 @@ public class DashboardService {
 
         long totalCustomersCount = customerRepository.countByEstablishmentId(establishmentId);
         long newCustomersThisMonth = customerRepository
-                .countByEstablishmentIdAndCreatedAtAfter(establishmentId, startOfMonth.atStartOfDay().atOffset(OffsetDateTime.now().getOffset()));
+                .countByEstablishmentIdAndCreatedAtAfter(establishmentId,
+                        startOfMonth.atStartOfDay(clock.getZone()).toOffsetDateTime());
+
+        // Comparação com o mês anterior (sem dado anterior, o crescimento fica em 0)
+        LocalDate startOfLastMonth = startOfMonth.minusMonths(1);
+        LocalDate endOfLastMonth = startOfMonth.minusDays(1);
+        BigDecimal lastMonthRevenue = appointmentRepository.sumRevenueBetweenDates(establishmentId, startOfLastMonth, endOfLastMonth);
+        long lastMonthAppointments = appointmentRepository
+                .countByEstablishmentIdAndAppointmentDateBetweenAndStatusNot(
+                        establishmentId, startOfLastMonth, endOfLastMonth, AppointmentStatus.CANCELLED);
+        double revenueGrowth = growthPercentage(monthRevenue, lastMonthRevenue);
+        double appointmentsGrowth = growthPercentage(BigDecimal.valueOf(monthAppointmentsCount), BigDecimal.valueOf(lastMonthAppointments));
+
+        long cancelledThisMonth = appointmentRepository
+                .countByEstablishmentIdAndAppointmentDateBetweenAndStatus(
+                        establishmentId, startOfMonth, endOfMonth, AppointmentStatus.CANCELLED);
+        long totalThisMonth = monthAppointmentsCount + cancelledThisMonth;
+        double cancellationRate = totalThisMonth == 0 ? 0.0
+                : BigDecimal.valueOf(cancelledThisMonth * 100.0 / totalThisMonth).setScale(1, RoundingMode.HALF_UP).doubleValue();
 
         // Próximos de hoje
         List<AppointmentDTO> upcomingToday = appointmentRepository
@@ -88,31 +106,38 @@ public class DashboardService {
                 ))
                 .build();
 
-        // Top Serviços
-        List<ServiceItem> services = serviceItemRepository.findByEstablishmentIdAndActiveTrue(establishmentId);
-        List<DashboardStatsDTO.TopServiceDTO> topServices = services.stream().limit(4).map(s ->
-                DashboardStatsDTO.TopServiceDTO.builder()
-                        .name(s.getName())
-                        .count(25L)
-                        .revenue(s.getPrice().multiply(BigDecimal.valueOf(25)))
-                        .build()
-        ).collect(Collectors.toList());
+        // Top Serviços do mês, a partir dos agendamentos reais
+        List<DashboardStatsDTO.TopServiceDTO> topServices = appointmentRepository
+                .findTopServices(establishmentId, startOfMonth, endOfMonth, PageRequest.of(0, 4))
+                .stream()
+                .map(row -> DashboardStatsDTO.TopServiceDTO.builder()
+                        .name((String) row[0])
+                        .count((Long) row[1])
+                        .revenue((BigDecimal) row[2])
+                        .build())
+                .collect(Collectors.toList());
 
         return DashboardStatsDTO.builder()
                 .todayRevenue(todayRevenue)
                 .monthRevenue(monthRevenue)
-                .revenueGrowthPercentage(14.8)
+                .revenueGrowthPercentage(revenueGrowth)
                 .todayAppointmentsCount(todayAppointmentsCount)
                 .monthAppointmentsCount(monthAppointmentsCount)
-                .appointmentsGrowthPercentage(11.2)
+                .appointmentsGrowthPercentage(appointmentsGrowth)
                 .totalCustomersCount(totalCustomersCount)
                 .newCustomersThisMonth(newCustomersThisMonth)
-                .occupancyRate(84)
-                .cancellationRate(3.8)
+                .occupancyRate(0) // TODO: cálculo real de ocupação (minutos agendados / minutos de expediente)
+                .cancellationRate(cancellationRate)
                 .upcomingAppointments(upcomingToday)
                 .revenueByDay(weeklyEvolution)
                 .appointmentsByStatus(statusDist)
                 .topServices(topServices)
                 .build();
+    }
+
+    private double growthPercentage(BigDecimal current, BigDecimal previous) {
+        if (previous.signum() == 0) return 0.0;
+        return current.subtract(previous).multiply(BigDecimal.valueOf(100))
+                .divide(previous, 1, RoundingMode.HALF_UP).doubleValue();
     }
 }

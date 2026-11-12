@@ -14,7 +14,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/establishments/{establishmentId}/services")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class ServiceItemController {
 
     private final ServiceItemService serviceItemService;

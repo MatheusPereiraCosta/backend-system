@@ -11,7 +11,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/establishments/{establishmentId}/dashboard")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class DashboardController {
 
     private final DashboardService dashboardService;

@@ -5,6 +5,8 @@ import com.agendapro.domain.Professional;
 import com.agendapro.domain.ProfessionalWorkingHour;
 import com.agendapro.domain.ServiceItem;
 import com.agendapro.dto.ProfessionalDTO;
+import com.agendapro.dto.WorkingHourDTO;
+import com.agendapro.exception.BusinessRuleException;
 import com.agendapro.exception.ResourceNotFoundException;
 import com.agendapro.repository.ProfessionalRepository;
 import com.agendapro.repository.ServiceItemRepository;
@@ -49,10 +51,52 @@ public class ProfessionalService {
                 .orElseThrow(() -> new ResourceNotFoundException("Profissional não encontrado com ID: " + id));
     }
 
-    @Transactional(readOnly = true)
-    public Professional getEntityById(UUID id) {
-        return professionalRepository.findById(id)
+    /**
+     * Devolve o profissional (somente se for do estabelecimento) com lock de escrita na linha.
+     * Deve ser chamado dentro de uma transação, ao criar agendamento, para serializar reservas concorrentes.
+     */
+    @Transactional
+    public Professional getEntityByIdForBooking(UUID establishmentId, UUID id) {
+        return professionalRepository.findByIdAndEstablishmentIdForUpdate(id, establishmentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Profissional não encontrado com ID: " + id));
+    }
+
+    @Transactional(readOnly = true)
+    public Professional getEntityById(UUID establishmentId, UUID id) {
+        return professionalRepository.findByIdAndEstablishmentId(id, establishmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Profissional não encontrado com ID: " + id));
+    }
+
+    /** Aceita apenas serviços do próprio estabelecimento; qualquer ID estranho invalida a requisição. */
+    private Set<ServiceItem> resolveServices(UUID establishmentId, List<UUID> serviceIds) {
+        Set<UUID> distinct = new HashSet<>(serviceIds);
+        List<ServiceItem> services = serviceItemRepository.findByIdInAndEstablishmentId(distinct, establishmentId);
+        if (services.size() != distinct.size()) {
+            throw new BusinessRuleException("Um ou mais serviços informados não pertencem a este estabelecimento.");
+        }
+        return new HashSet<>(services);
+    }
+
+    /** Atualiza por dia da semana (a tabela tem unicidade profissional+dia, então não dá para apagar e recriar). */
+    private void syncWorkingHours(Professional entity, List<WorkingHourDTO> incoming) {
+        for (WorkingHourDTO h : incoming) {
+            ProfessionalWorkingHour hour = entity.getWorkingHours().stream()
+                    .filter(w -> w.getDayOfWeek().equals(h.getDayOfWeek()))
+                    .findFirst()
+                    .orElseGet(() -> {
+                        ProfessionalWorkingHour created = ProfessionalWorkingHour.builder()
+                                .professional(entity)
+                                .dayOfWeek(h.getDayOfWeek())
+                                .build();
+                        entity.getWorkingHours().add(created);
+                        return created;
+                    });
+            hour.setEnabled(h.getEnabled() == null || h.getEnabled());
+            hour.setStartTime(h.getStartTime());
+            hour.setEndTime(h.getEndTime());
+            hour.setBreakStart(h.getBreakStart());
+            hour.setBreakEnd(h.getBreakEnd());
+        }
     }
 
     @Transactional
@@ -73,23 +117,11 @@ public class ProfessionalService {
                 .build();
 
         if (dto.getServiceIds() != null && !dto.getServiceIds().isEmpty()) {
-            List<ServiceItem> services = serviceItemRepository.findAllById(dto.getServiceIds());
-            entity.setServices(new HashSet<>(services));
+            entity.setServices(resolveServices(establishmentId, dto.getServiceIds()));
         }
 
         if (dto.getWorkingHours() != null && !dto.getWorkingHours().isEmpty()) {
-            Set<ProfessionalWorkingHour> hours = dto.getWorkingHours().stream()
-                    .map(h -> ProfessionalWorkingHour.builder()
-                            .professional(entity)
-                            .dayOfWeek(h.getDayOfWeek())
-                            .enabled(h.getEnabled())
-                            .startTime(h.getStartTime())
-                            .endTime(h.getEndTime())
-                            .breakStart(h.getBreakStart())
-                            .breakEnd(h.getBreakEnd())
-                            .build())
-                    .collect(Collectors.toSet());
-            entity.setWorkingHours(hours);
+            syncWorkingHours(entity, dto.getWorkingHours());
         }
 
         return ProfessionalDTO.fromEntity(professionalRepository.save(entity));
@@ -109,8 +141,11 @@ public class ProfessionalService {
         if (dto.getActive() != null) entity.setActive(dto.getActive());
 
         if (dto.getServiceIds() != null) {
-            List<ServiceItem> services = serviceItemRepository.findAllById(dto.getServiceIds());
-            entity.setServices(new HashSet<>(services));
+            entity.setServices(resolveServices(establishmentId, dto.getServiceIds()));
+        }
+
+        if (dto.getWorkingHours() != null && !dto.getWorkingHours().isEmpty()) {
+            syncWorkingHours(entity, dto.getWorkingHours());
         }
 
         return ProfessionalDTO.fromEntity(professionalRepository.save(entity));

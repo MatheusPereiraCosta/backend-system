@@ -18,7 +18,7 @@ public class EstablishmentDTO {
     @NotBlank(message = "O nome do estabelecimento é obrigatório")
     private String name;
 
-    @NotBlank(message = "O slug é obrigatório")
+    /** Somente leitura: gerado no cadastro e ignorado no PUT. */
     private String slug;
 
     private String tagline;

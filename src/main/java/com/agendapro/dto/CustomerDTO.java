@@ -30,6 +30,15 @@ public class CustomerDTO {
     private CustomerStatus status = CustomerStatus.REGULAR;
 
     private String notes;
+
+    /** Agendamentos não cancelados. Calculado a partir dos agendamentos, não é gravado no cliente. */
+    @Builder.Default
+    private Long totalAppointments = 0L;
+
+    /** Soma dos atendimentos concluídos (pagamento é feito no local). */
+    @Builder.Default
+    private java.math.BigDecimal totalSpent = java.math.BigDecimal.ZERO;
+
     private OffsetDateTime lastVisitAt;
     private Long daysSinceLastVisit;
     private OffsetDateTime createdAt;

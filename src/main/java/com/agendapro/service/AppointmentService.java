@@ -8,6 +8,7 @@ import com.agendapro.domain.ServiceItem;
 import com.agendapro.domain.enums.AppointmentStatus;
 import com.agendapro.dto.AppointmentDTO;
 import com.agendapro.dto.CreateAppointmentRequest;
+import com.agendapro.exception.BusinessRuleException;
 import com.agendapro.exception.ResourceNotFoundException;
 import com.agendapro.exception.ScheduleConflictException;
 import com.agendapro.repository.AppointmentRepository;
@@ -31,6 +32,7 @@ public class AppointmentService {
     private final ProfessionalService professionalService;
     private final ServiceItemService serviceItemService;
     private final CustomerService customerService;
+    private final AvailabilityService availabilityService;
 
     @Transactional(readOnly = true)
     public List<AppointmentDTO> findByDate(UUID establishmentId, LocalDate date) {
@@ -65,8 +67,20 @@ public class AppointmentService {
     @Transactional
     public AppointmentDTO create(UUID establishmentId, CreateAppointmentRequest request) {
         Establishment establishment = establishmentService.getEntityById(establishmentId);
-        Professional professional = professionalService.getEntityById(request.getProfessionalId());
-        ServiceItem service = serviceItemService.getEntityById(request.getServiceId());
+        // Profissional e serviço precisam ser do estabelecimento da URL. O lock no profissional serializa
+        // reservas simultâneas dele: a segunda só roda depois do commit da primeira e então enxerga o conflito.
+        Professional professional = professionalService.getEntityByIdForBooking(establishmentId, request.getProfessionalId());
+        ServiceItem service = serviceItemService.getEntityById(establishmentId, request.getServiceId());
+
+        if (!Boolean.TRUE.equals(professional.getActive())) {
+            throw new BusinessRuleException("Este profissional não está disponível para agendamentos.");
+        }
+        if (!Boolean.TRUE.equals(service.getActive())) {
+            throw new BusinessRuleException("Este serviço não está disponível para agendamentos.");
+        }
+        if (professional.getServices().stream().noneMatch(s -> s.getId().equals(service.getId()))) {
+            throw new BusinessRuleException("Este profissional não realiza o serviço escolhido.");
+        }
 
         LocalTime startTime = request.getStartTime();
         LocalTime endTime = startTime.plusMinutes(service.getDurationMinutes());
@@ -84,6 +98,14 @@ public class AppointmentService {
             throw new ScheduleConflictException(
                     String.format("O profissional %s já possui um agendamento marcado entre %s e %s no dia %s.",
                             professional.getName(), startTime, endTime, request.getAppointmentDate()));
+        }
+
+        // 1.1 O horário precisa ser um dos oferecidos (dia útil, dentro do expediente, fora do intervalo e não passado)
+        boolean offered = availabilityService
+                .computeSlots(establishmentId, professional.getId(), service, request.getAppointmentDate())
+                .getAvailableTimes().contains(startTime);
+        if (!offered) {
+            throw new BusinessRuleException("Horário indisponível. Escolha um dos horários livres exibidos.");
         }
 
         // 2. Localizar ou cadastrar automaticamente o cliente

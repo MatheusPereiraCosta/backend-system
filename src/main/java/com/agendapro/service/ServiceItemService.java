@@ -36,9 +36,10 @@ public class ServiceItemService {
                 .orElseThrow(() -> new ResourceNotFoundException("Serviço não encontrado com ID: " + id));
     }
 
+    /** Só devolve o serviço se ele pertencer ao estabelecimento informado. */
     @Transactional(readOnly = true)
-    public ServiceItem getEntityById(UUID id) {
-        return serviceItemRepository.findById(id)
+    public ServiceItem getEntityById(UUID establishmentId, UUID id) {
+        return serviceItemRepository.findByIdAndEstablishmentId(id, establishmentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Serviço não encontrado com ID: " + id));
     }
 

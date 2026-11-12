@@ -6,6 +6,10 @@ import lombok.*;
 import java.time.LocalTime;
 import java.util.UUID;
 
+/**
+ * Sem @EqualsAndHashCode por id de propósito: antes de salvar o id é nulo, e todos os horários novos
+ * seriam considerados iguais, fazendo o Set descartar 6 dos 7 dias da semana.
+ */
 @Entity
 @Table(name = "professional_working_hours", uniqueConstraints = {
     @UniqueConstraint(name = "uk_pro_day_of_week", columnNames = {"professional_id", "day_of_week"})
@@ -15,7 +19,6 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@EqualsAndHashCode(of = "id")
 public class ProfessionalWorkingHour {
 
     @Id

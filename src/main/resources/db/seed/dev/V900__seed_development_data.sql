@@ -1,5 +1,5 @@
 -- =============================================================================
--- Migration V2: Massa de Dados Inicial para Desenvolvimento (Seed Data)
+-- Migration V900: Massa de Dados Inicial para Desenvolvimento (Seed Data)
 -- =============================================================================
 
 -- 1. Inserir Estabelecimento Padrão
@@ -71,3 +71,9 @@ INSERT INTO appointments (
 ('e0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000003', CURRENT_DATE, '09:00:00', '10:20:00', 110.00, 80, 'COMPLETED', false, 'Cliente pontual.'),
 ('e0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000001', CURRENT_DATE, '10:30:00', '11:15:00', 65.00, 45, 'IN_PROGRESS', false, 'Degrade baixo nas laterais.'),
 ('e0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000002', CURRENT_DATE, '14:00:00', '14:40:00', 55.00, 40, 'CONFIRMED', false, 'Barba terapia com toalha quente.');
+
+-- 7. Usuário dono do estabelecimento de exemplo (somente desenvolvimento)
+--    Login: admin@agendapro.dev  |  Senha: agendapro123
+INSERT INTO users (id, establishment_id, name, email, password_hash, role) VALUES
+('f0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'Dono Demo', 'admin@agendapro.dev',
+ '$2y$10$F55QOEXfiJ2RnhUrtA7g7erev8uB6pRkeRpJjetj1/NxthAi9T/pC', 'ADMIN');

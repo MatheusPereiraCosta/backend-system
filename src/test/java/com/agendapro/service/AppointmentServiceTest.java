@@ -7,7 +7,10 @@ import com.agendapro.domain.Professional;
 import com.agendapro.domain.ServiceItem;
 import com.agendapro.domain.enums.AppointmentStatus;
 import com.agendapro.dto.AppointmentDTO;
+import com.agendapro.dto.AvailabilitySlotDTO;
 import com.agendapro.dto.CreateAppointmentRequest;
+import com.agendapro.exception.BusinessRuleException;
+import com.agendapro.exception.ResourceNotFoundException;
 import com.agendapro.exception.ScheduleConflictException;
 import com.agendapro.repository.AppointmentRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,10 +25,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -46,6 +51,9 @@ class AppointmentServiceTest {
     @Mock
     private CustomerService customerService;
 
+    @Mock
+    private AvailabilityService availabilityService;
+
     @InjectMocks
     private AppointmentService appointmentService;
 
@@ -64,9 +72,31 @@ class AppointmentServiceTest {
         serviceId = UUID.randomUUID();
 
         establishment = Establishment.builder().id(establishmentId).name("Barbearia Teste").build();
-        professional = Professional.builder().id(professionalId).name("Carlos").build();
         serviceItem = ServiceItem.builder().id(serviceId).name("Corte").price(new BigDecimal("50.00")).durationMinutes(30).build();
+        professional = Professional.builder().id(professionalId).name("Carlos").services(Set.of(serviceItem)).build();
         customer = Customer.builder().id(UUID.randomUUID()).name("Lucas").phone("11999998888").build();
+    }
+
+    private CreateAppointmentRequest request(LocalTime start) {
+        return CreateAppointmentRequest.builder()
+                .professionalId(professionalId)
+                .serviceId(serviceId)
+                .customerName("Lucas")
+                .customerPhone("11999998888")
+                .appointmentDate(LocalDate.now().plusDays(1))
+                .startTime(start)
+                .build();
+    }
+
+    private void stubScope() {
+        when(establishmentService.getEntityById(establishmentId)).thenReturn(establishment);
+        when(professionalService.getEntityByIdForBooking(establishmentId, professionalId)).thenReturn(professional);
+        when(serviceItemService.getEntityById(establishmentId, serviceId)).thenReturn(serviceItem);
+    }
+
+    private void stubSlots(LocalTime... times) {
+        when(availabilityService.computeSlots(eq(establishmentId), eq(professionalId), eq(serviceItem), any()))
+                .thenReturn(AvailabilitySlotDTO.builder().availableTimes(List.of(times)).build());
     }
 
     @Test
@@ -81,9 +111,8 @@ class AppointmentServiceTest {
                 .startTime(LocalTime.of(10, 0))
                 .build();
 
-        when(establishmentService.getEntityById(establishmentId)).thenReturn(establishment);
-        when(professionalService.getEntityById(professionalId)).thenReturn(professional);
-        when(serviceItemService.getEntityById(serviceId)).thenReturn(serviceItem);
+        stubScope();
+        stubSlots(LocalTime.of(10, 0));
         when(appointmentRepository.findOverlappingAppointments(any(), any(), any(), any(), any()))
                 .thenReturn(List.of());
         when(customerService.findOrCreate(any(), any(), any(), any())).thenReturn(customer);
@@ -125,9 +154,7 @@ class AppointmentServiceTest {
                 .startTime(LocalTime.of(10, 0))
                 .build();
 
-        when(establishmentService.getEntityById(establishmentId)).thenReturn(establishment);
-        when(professionalService.getEntityById(professionalId)).thenReturn(professional);
-        when(serviceItemService.getEntityById(serviceId)).thenReturn(serviceItem);
+        stubScope();
 
         Appointment conflictingAppointment = Appointment.builder()
                 .id(UUID.randomUUID())
@@ -139,6 +166,66 @@ class AppointmentServiceTest {
                 .thenReturn(List.of(conflictingAppointment));
 
         assertThrows(ScheduleConflictException.class, () -> appointmentService.create(establishmentId, request));
+        verify(appointmentRepository, never()).save(any(Appointment.class));
+    }
+
+    @Test
+    @DisplayName("Não deve agendar profissional de outro estabelecimento (isolamento)")
+    void shouldRejectProfessionalFromAnotherEstablishment() {
+        when(establishmentService.getEntityById(establishmentId)).thenReturn(establishment);
+        when(professionalService.getEntityByIdForBooking(establishmentId, professionalId))
+                .thenThrow(new ResourceNotFoundException("Profissional não encontrado"));
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> appointmentService.create(establishmentId, request(LocalTime.of(10, 0))));
+        verify(appointmentRepository, never()).save(any(Appointment.class));
+    }
+
+    @Test
+    @DisplayName("Não deve agendar serviço de outro estabelecimento (isolamento)")
+    void shouldRejectServiceFromAnotherEstablishment() {
+        when(establishmentService.getEntityById(establishmentId)).thenReturn(establishment);
+        when(professionalService.getEntityByIdForBooking(establishmentId, professionalId)).thenReturn(professional);
+        when(serviceItemService.getEntityById(establishmentId, serviceId))
+                .thenThrow(new ResourceNotFoundException("Serviço não encontrado"));
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> appointmentService.create(establishmentId, request(LocalTime.of(10, 0))));
+        verify(appointmentRepository, never()).save(any(Appointment.class));
+    }
+
+    @Test
+    @DisplayName("Não deve agendar quando o profissional não realiza o serviço")
+    void shouldRejectWhenProfessionalDoesNotPerformService() {
+        professional.setServices(Set.of());
+        stubScope();
+
+        assertThrows(BusinessRuleException.class,
+                () -> appointmentService.create(establishmentId, request(LocalTime.of(10, 0))));
+        verify(appointmentRepository, never()).save(any(Appointment.class));
+    }
+
+    @Test
+    @DisplayName("Não deve agendar profissional inativo")
+    void shouldRejectInactiveProfessional() {
+        professional.setActive(false);
+        stubScope();
+
+        assertThrows(BusinessRuleException.class,
+                () -> appointmentService.create(establishmentId, request(LocalTime.of(10, 0))));
+        verify(appointmentRepository, never()).save(any(Appointment.class));
+    }
+
+    @Test
+    @DisplayName("Não deve agendar em horário que não está entre os horários livres (fora do expediente, passado ou intervalo)")
+    void shouldRejectTimeNotOffered() {
+        stubScope();
+        stubSlots(LocalTime.of(9, 0));
+        when(appointmentRepository.findOverlappingAppointments(any(), any(), any(), any(), any()))
+                .thenReturn(List.of());
+
+        assertThrows(BusinessRuleException.class,
+                () -> appointmentService.create(establishmentId, request(LocalTime.of(23, 0))));
         verify(appointmentRepository, never()).save(any(Appointment.class));
     }
 }
